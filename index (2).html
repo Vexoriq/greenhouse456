@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aqlli Issiqxona</title>
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>
+  :root{
+    --bg:#f2f6f1; --card:#ffffff; --text:#1d2a1f; --muted:#6b7a6d; --line:#e2e9e1;
+    --green:#2e9e4f; --blue:#2f7fd8; --yellow:#e0a100; --red:#e0393e; --purple:#9b4dca;
+    --shadow:0 2px 10px rgba(30,60,35,.07);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0f1511; --card:#18211b; --text:#e7efe8; --muted:#8fa093; --line:#26322a;
+      --shadow:0 2px 10px rgba(0,0,0,.35);
+    }
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+  .wrap{max-width:1100px;margin:0 auto;padding:20px 16px 40px}
+
+  header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:20px}
+  .brand{display:flex;align-items:center;gap:12px}
+  .logo{width:44px;height:44px;border-radius:12px;background:var(--green);display:grid;place-items:center;color:#fff;font-size:24px}
+  h1{font-size:22px;font-weight:700}
+  .sub{font-size:13px;color:var(--muted)}
+  .conn{display:flex;align-items:center;gap:8px;background:var(--card);padding:8px 14px;border-radius:999px;box-shadow:var(--shadow);font-size:13px}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--muted)}
+  .dot.on{background:var(--green);box-shadow:0 0 0 4px rgba(46,158,79,.2)}
+  .dot.off{background:var(--red)}
+
+  .banner{display:none;background:var(--red);color:#fff;padding:14px 18px;border-radius:14px;margin-bottom:16px;font-weight:600;animation:pulse 1s infinite}
+  .banner.show{display:block}
+  @keyframes pulse{50%{opacity:.75}}
+
+  .status{display:flex;align-items:center;gap:16px;background:var(--card);border-radius:16px;padding:16px 18px;box-shadow:var(--shadow);margin-bottom:16px}
+  .rgb{width:46px;height:46px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:.3s}
+  .rgb.blink{animation:blink .5s infinite}
+  @keyframes blink{50%{opacity:.2}}
+  .status b{font-size:17px;display:block}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+  .card{background:var(--card);border-radius:16px;padding:18px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px}
+  .card h3{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;display:flex;align-items:center;gap:8px}
+  .val{font-size:34px;font-weight:700;font-variant-numeric:tabular-nums}
+  .val small{font-size:16px;color:var(--muted);font-weight:500}
+  .note{font-size:13px;color:var(--muted)}
+  canvas.spark{width:100%;height:50px}
+
+  .bar{height:10px;background:var(--line);border-radius:99px;overflow:hidden}
+  .bar>i{display:block;height:100%;width:0;border-radius:99px;transition:width .5s}
+
+  .leds{display:flex;gap:10px}
+  .led{width:26px;height:26px;border-radius:50%;background:var(--line);transition:.3s}
+  .led.on{background:#2f7fd8;box-shadow:0 0 14px #2f7fd8}
+
+  .pump{display:flex;align-items:center;gap:10px;font-weight:600}
+  .pump .ic{font-size:26px}
+  .pump.on .ic{animation:drop 1s infinite}
+  @keyframes drop{50%{transform:translateY(4px)}}
+  .btns{display:flex;gap:8px;flex-wrap:wrap}
+  button{border:0;border-radius:10px;padding:10px 14px;font-size:14px;font-weight:600;cursor:pointer;color:#fff;background:var(--blue)}
+  button.stop{background:var(--muted)}
+  button:disabled{opacity:.4;cursor:not-allowed}
+
+  .tag{display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600;color:#fff;background:var(--green)}
+  footer{margin-top:24px;text-align:center;font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <div class="logo">🌱</div>
+      <div>
+        <h1>Aqlli Issiqxona</h1>
+        <div class="sub">ESP32-S3 • real vaqt monitoringi</div>
+      </div>
+    </div>
+    <div class="conn"><span class="dot" id="dot"></span><span id="connText">Ulanmoqda...</span></div>
+  </header>
+
+  <div class="banner" id="gasBanner">⚠️ DIQQAT! Gaz miqdori xavfli darajada! Xonani shamollating.</div>
+
+  <div class="status">
+    <div class="rgb" id="rgb"></div>
+    <div>
+      <b id="stateTitle">Ma'lumot kutilmoqda</b>
+      <span class="note" id="stateNote">Qurilma hali ma'lumot yubormadi</span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>🌡️ Harorat</h3>
+      <div class="val"><span id="t">--</span> <small>°C</small></div>
+      <canvas class="spark" id="sT"></canvas>
+    </div>
+
+    <div class="card">
+      <h3>💧 Havo namligi</h3>
+      <div class="val"><span id="h">--</span> <small>%</small></div>
+      <canvas class="spark" id="sH"></canvas>
+    </div>
+
+    <div class="card">
+      <h3>🌍 Tuproq namligi</h3>
+      <div class="val"><span id="soil">--</span> <small>%</small></div>
+      <div class="bar"><i id="soilBar" style="background:var(--green)"></i></div>
+      <div class="note" id="soilNote">--</div>
+      <canvas class="spark" id="sS"></canvas>
+    </div>
+
+    <div class="card">
+      <h3>☀️ Yorug'lik</h3>
+      <div class="val"><span id="light">--</span> <small>%</small></div>
+      <div class="bar"><i id="lightBar" style="background:var(--yellow)"></i></div>
+      <div class="note">Ko'k chiroqlar:</div>
+      <div class="leds"><div class="led" id="l1"></div><div class="led" id="l2"></div><div class="led" id="l3"></div></div>
+    </div>
+
+    <div class="card">
+      <h3>🔥 Gaz</h3>
+      <div class="val"><span id="gas">--</span></div>
+      <div><span class="tag" id="gasTag">--</span></div>
+      <canvas class="spark" id="sG"></canvas>
+    </div>
+
+    <div class="card">
+      <h3>🚿 Nasos</h3>
+      <div class="pump" id="pump"><span class="ic">💧</span><span id="pumpText">--</span></div>
+      <div><span class="tag" style="background:var(--blue)">AVTOMATIK REJIM</span></div>
+      <div class="note" id="autoNote">Tuproq quruqlashsa nasos o'zi yoqiladi</div>
+    </div>
+  </div>
+
+  <footer>Oxirgi yangilanish: <span id="last">—</span> • WiFi signal: <span id="rssi">—</span></footer>
+</div>
+
+<script>
+// ======== SOZLAMA: ESP32 kodidagi TOPIC bilan BIR XIL bo'lishi shart ========
+const TOPIC  = "fardu/issiqxona/mk7q4x9z";
+const BROKER = "wss://broker.hivemq.com:8884/mqtt";
+// ============================================================================
+
+const $ = id => document.getElementById(id);
+const hist = { t: [], h: [], s: [], g: [] };
+const MAX = 60;
+let lastMsgAt = 0, deviceOnline = false, brokerOk = false;
+
+const STATES = {
+  ok:      { c: "var(--green)",  t: "Hammasi joyida",      n: "Barcha ko'rsatkichlar me'yorda" },
+  water:   { c: "var(--blue)",   t: "Suv quyilyapti",      n: "Nasos ishlamoqda" },
+  hot:     { c: "var(--yellow)", t: "Juda issiq",          n: "Harorat 35°C dan yuqori" },
+  dht_err: { c: "var(--purple)", t: "DHT22 xatosi",        n: "Harorat datchigi javob bermayapti" },
+  gas:     { c: "var(--red)",    t: "Gaz xavfi!",          n: "Gaz miqdori yuqori" }
+};
+
+// ---- MQTT ----
+const client = mqtt.connect(BROKER, {
+  clientId: "web-" + Math.random().toString(16).slice(2, 10),
+  reconnectPeriod: 3000, clean: true
+});
+
+client.on("connect", () => {
+  brokerOk = true;
+  client.subscribe([TOPIC + "/data", TOPIC + "/status"]);
+  updateConn();
+});
+client.on("close", () => { brokerOk = false; updateConn(); });
+client.on("message", (topic, payload) => {
+  const msg = payload.toString();
+  if (topic.endsWith("/status")) { deviceOnline = msg === "online"; updateConn(); return; }
+  try { render(JSON.parse(msg)); } catch (e) { console.warn("JSON xato:", msg); }
+});
+
+
+// ---- Ko'rsatish ----
+function render(d) {
+  lastMsgAt = Date.now();
+  deviceOnline = true;
+
+  $("t").textContent = d.t == null ? "--" : d.t.toFixed(1);
+  $("h").textContent = d.h == null ? "--" : d.h.toFixed(1);
+
+  $("soil").textContent = d.soilPct;
+  $("soilBar").style.width = d.soilPct + "%";
+  $("soilNote").textContent = d.soilPct < 30 ? "Quruq — suv kerak" : d.soilPct < 60 ? "O'rtacha" : "Yetarli nam";
+
+  $("light").textContent = d.lightPct;
+  $("lightBar").style.width = d.lightPct + "%";
+  ["l1","l2","l3"].forEach((id, i) => $(id).classList.toggle("on", d.leds > i));
+
+  $("gas").textContent = d.gas;
+  $("gasTag").textContent = d.gasAlarm ? "XAVFLI" : "Normal";
+  $("gasTag").style.background = d.gasAlarm ? "var(--red)" : "var(--green)";
+  $("gasBanner").classList.toggle("show", d.gasAlarm);
+
+  $("pump").classList.toggle("on", d.pump);
+  $("pumpText").textContent = d.pump ? "Sug'oryapti"
+                            : d.cooldown ? "Tanaffus — suv singyapti"
+                            : "Kutmoqda";
+  if (d.startPct != null)
+    $("autoNote").textContent = `Namlik ${d.startPct}% dan tushsa yoqiladi, ${d.stopPct}% ga yetganda o'chadi`;
+
+  const st = STATES[d.state] || STATES.ok;
+  $("rgb").style.background = st.c;
+  $("rgb").classList.toggle("blink", d.state === "gas");
+  $("stateTitle").textContent = st.t;
+  $("stateNote").textContent = st.n;
+
+  $("rssi").textContent = d.rssi + " dBm";
+  $("last").textContent = new Date().toLocaleTimeString("uz-UZ");
+
+  push(hist.t, d.t); push(hist.h, d.h); push(hist.s, d.soilPct); push(hist.g, d.gas);
+  spark("sT", hist.t, "#e0393e");
+  spark("sH", hist.h, "#2f7fd8");
+  spark("sS", hist.s, "#2e9e4f");
+  spark("sG", hist.g, "#e0a100");
+  updateConn();
+}
+
+function push(arr, v) { if (v == null) return; arr.push(v); if (arr.length > MAX) arr.shift(); }
+
+function spark(id, data, color) {
+  const c = $(id), dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  const x = c.getContext("2d"); x.scale(dpr, dpr);
+  if (data.length < 2) return;
+  const mn = Math.min(...data), mx = Math.max(...data), r = (mx - mn) || 1;
+  const px = i => i / (MAX - 1) * w;
+  const py = v => h - 4 - (v - mn) / r * (h - 8);
+  const off = MAX - data.length;
+  x.beginPath();
+  data.forEach((v, i) => i ? x.lineTo(px(i + off), py(v)) : x.moveTo(px(i + off), py(v)));
+  x.strokeStyle = color; x.lineWidth = 2; x.stroke();
+  x.lineTo(px(data.length - 1 + off), h); x.lineTo(px(off), h); x.closePath();
+  x.globalAlpha = .12; x.fillStyle = color; x.fill();
+}
+
+function updateConn() {
+  const fresh = Date.now() - lastMsgAt < 15000;
+  const dot = $("dot"), txt = $("connText");
+  dot.className = "dot";
+  if (!brokerOk)                   { dot.classList.add("off"); txt.textContent = "Serverga ulanmoqda..."; }
+  else if (deviceOnline && fresh)  { dot.classList.add("on");  txt.textContent = "Qurilma onlayn"; }
+  else                             { dot.classList.add("off"); txt.textContent = "Qurilma oflayn"; }
+}
+setInterval(updateConn, 3000);
+</script>
+</body>
+</html>
